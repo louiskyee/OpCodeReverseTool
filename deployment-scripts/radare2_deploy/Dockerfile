@@ -1,23 +1,25 @@
-# 使用 Ubuntu 最新版作為基礎映像
+# Use an official base image
 FROM ubuntu:latest
 
-# 安裝必要的套件
+# Install base utilities
 RUN apt-get update && apt-get install -y git make sudo
 
-RUN useradd -m radare2user\
-    && echo "radare2user:radare2user" | chpasswd\
+# Create a new user and add to sudo group
+RUN useradd -m radare2user \
+    && echo "radare2user:radare2user" | chpasswd \
     && adduser radare2user sudo
 
+# Switch to the new user
 USER radare2user
 
-workdir /home/radare2user
+# Set working directory
+WORKDIR /home/radare2user
 
-# 複製安裝腳本到容器中
+# Copy the installation script into the container
 COPY --chown=radare2user:radare2user install_radare2.sh /install_radare2.sh
 
-# 賦予腳本執行權限
+# Grant execution permissions to the script
 RUN chmod +x /install_radare2.sh
 
-# 當容器啟動時執行腳本
+# Run the script when the container starts
 CMD ["/radare2_deploy.sh"]
-
