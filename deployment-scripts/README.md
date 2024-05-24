@@ -32,9 +32,8 @@ git clone https://github.com/louiskyee/OpCodeReverseTool.git
 cd deployment-scripts
 cd <tool_directory>  # e.g., ida_pro_deploy, ghidra_deploy, or radare2_deploy
 ./<script_name>.sh   # e.g., ida_pro_deploy.sh
-# Optionally build and run Docker container
-docker build -t <tool_name>:latest .
-docker run <tool_name>:latest
+docker build -t <tool_name>-image .
+docker run -it --name <tool_name>-container <tool_name>-image
 ```
 
 ## Requirements
