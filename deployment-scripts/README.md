@@ -6,9 +6,22 @@ This repository contains automation scripts for deploying environments for IDA P
 
 ## Contents
 
-- `ida_pro_deploy.sh` - Script to automatically set up IDA Pro.
-- `ghidra_deploy.sh` - Script to automatically install and configure Ghidra.
-- `radare2_deploy.sh` - Script to facilitate the deployment of Radare2.
+The deployment scripts are organized into separate directories for each tool, each containing a Dockerfile and a shell script:
+
+- **IDA Pro Deployment**
+  - **Directory**: `ida_pro_deploy/`
+    - `Dockerfile` - Docker configuration for IDA Pro.
+    - `ida_pro_deploy.sh` - Script to automatically set up IDA Pro.
+
+- **Ghidra Deployment**
+  - **Directory**: `ghidra_deploy/`
+    - `Dockerfile` - Docker configuration for Ghidra.
+    - `ghidra_deploy.sh` - Script to automatically install and configure Ghidra.
+
+- **Radare2 Deployment**
+  - **Directory**: `radare2_deploy/`
+    - `Dockerfile` - Docker configuration for Radare2.
+    - `radare2_deploy.sh` - Script to facilitate the deployment of Radare2.
 
 ## Usage
 
@@ -17,7 +30,11 @@ To use these deployment scripts, clone the repository and run the desired script
 ```bash
 git clone https://github.com/louiskyee/OpCodeReverseTool.git
 cd deployment-scripts
-./<script_name>.sh
+cd <tool_directory>  # e.g., ida_pro_deploy, ghidra_deploy, or radare2_deploy
+./<script_name>.sh   # e.g., ida_pro_deploy.sh
+# Optionally build and run Docker container
+docker build -t <tool_name>:latest .
+docker run <tool_name>:latest
 ```
 
 ## Requirements
