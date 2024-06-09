@@ -26,7 +26,7 @@ except Exception as e:
     logging.error(error_message, exc_info=True)
 
 # Set up logging
-log_file_path = os.path.join(output_folder, 'extract_operation_code.log')
+log_file_path = os.path.join(output_folder, 'extraction.log')
 logging.basicConfig(filename=log_file_path, level=logging.ERROR,
                     format='%(asctime)s:%(levelname)s:%(message)s')
 
@@ -77,7 +77,7 @@ try:
 
     end_time = time.time()
     execution_time = end_time - start_time
-    with open(os.path.join(output_folder, 'execution_times.log'), 'a', newline='', encoding='utf-8') as f:
+    with open(os.path.join(output_folder, 'timing.log'), 'a', newline='', encoding='utf-8') as f:
         f.write("{},{:.2f}\n".format(program_name, execution_time))
 
 except Exception as e:
