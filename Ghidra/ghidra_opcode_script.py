@@ -1,13 +1,12 @@
 import os
 import csv
-import time
 import logging
 from ghidra.app.util.headless import HeadlessScript
 from ghidra.program.model.address import AddressSet
 
-# Get command line arguments
+# Get script arguments and determine the save folder
 argv = getScriptArgs()
-program_name = currentProgram.getName()
+
 try:
     # Set save folder
     if len(argv) == 2:
@@ -25,60 +24,43 @@ except Exception as e:
     error_message = "An error occurred while setting parameters: {}".format(e)
     logging.error(error_message, exc_info=True)
 
+program_name = currentProgram.getName()
+program_folder = os.path.join(results_folder, program_name)
+
+# Create the program-specific directory
+if not os.path.exists(program_folder):
+    os.makedirs(program_folder)
+
 # Set up logging
 log_file_path = os.path.join(output_folder, 'extraction.log')
-logging.basicConfig(filename=log_file_path, level=logging.ERROR,
-                    format='%(asctime)s:%(levelname)s:%(message)s')
+logging.basicConfig(filename=log_file_path, level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Determine file path for CSV file
+csv_file_path = os.path.join(program_folder, program_name + '.csv')
 
 try:
-    start_time = time.time()
-
-    output_path = os.path.join(results_folder, program_name + '.csv')
-
-    with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
-        # Create a CSV writer
+    with open(csv_file_path, 'w', newline='', encoding='utf-8') as csvfile:
         csvwriter = csv.writer(csvfile)
-
-        # Write the header
         csvwriter.writerow(['addr', 'opcode', 'section_name'])
 
-        # Get the list of MemoryBlocks
         memory_blocks = currentProgram.getMemory().getBlocks()
 
-        if len(memory_blocks) > 0:
+        if memory_blocks:
             for block in memory_blocks:
-                # Get each MemoryBlock's name
                 block_name = block.getName()
-
-                # Get the start and end addresses of the MemoryBlock
-                start_address = block.getStart()
-                end_address = block.getEnd()
-
-                # Create an AddressSet for the block
-                address_set = AddressSet(start_address, end_address)
-
-                # Get instructions in the MemoryBlock using the AddressSet
+                address_set = AddressSet(block.getStart(), block.getEnd())
                 instructions = currentProgram.getListing().getInstructions(address_set, True)
                 for instr in instructions:
                     addr = instr.getAddress().toString()
                     opcode = str(instr).split(' ')[0]
-
-                    # Write the instruction to the CSV file
                     csvwriter.writerow([addr, opcode, block_name])
         else:
-            # If no MemoryBlocks found, get all instructions
             instructions = currentProgram.getListing().getInstructions(True)
             for instr in instructions:
                 addr = instr.getAddress().toString()
                 opcode = str(instr).split(' ')[0]
-
-                # Write the instruction to the CSV file with section_name as .no_section
                 csvwriter.writerow([addr, opcode, '.no_section'])
-
-    end_time = time.time()
-    execution_time = end_time - start_time
-    with open(os.path.join(output_folder, 'timing.log'), 'a', newline='', encoding='utf-8') as f:
-        f.write("{},{:.2f}\n".format(program_name, execution_time))
 
 except Exception as e:
     error_message = "An error occurred while writing the files: {}".format(e)
