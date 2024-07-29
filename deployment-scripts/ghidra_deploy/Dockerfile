@@ -14,10 +14,10 @@ USER ghidrauser
 WORKDIR /home/ghidrauser
 
 # Copy the installation script into the container
-COPY --chown=ghidrauser:ghidrauser install_ghidra.sh /home/ghidrauser/install_ghidra.sh
+COPY --chown=ghidrauser:ghidrauser ghidra_deploy.sh /home/ghidrauser/ghidra_deploy.sh
 
 # Grant execution permissions to the script
-RUN chmod +x /home/ghidrauser/install_ghidra.sh
+RUN chmod +x /home/ghidrauser/ghidra_deploy.sh
 
 # Run the script when the container starts
-CMD ["/home/ghidrauser/install_ghidra.sh"]
+CMD ["/home/ghidrauser/ghidra_deploy.sh"]
