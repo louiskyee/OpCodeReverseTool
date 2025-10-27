@@ -144,13 +144,13 @@ def extraction(input_file_path: str, output_csv_path: str, file_name: str, extra
         extraction_logger.info(f"File already exists: {output_csv_path}")
         return 0
 
-    start_time = time.process_time()
 
     try:
         if not check_timeout(input_file_path, timeout_seconds, bash_script_path):
             extraction_logger.error(f"{file_name}: File analysis timed out after {timeout_seconds} seconds")
             return 0
 
+        start_time = time.process_time()
         all_opcodes = extract_features(input_file_path, extraction_logger)
 
         if not all_opcodes:
