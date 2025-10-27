@@ -7,10 +7,16 @@ import subprocess
 import pandas as pd
 
 from tqdm import tqdm
-from elftools.elf.elffile import ELFFile
+from typing import List, Dict, Any, Tuple
+from contextlib import contextmanager
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-def configure_logging(output_dir: str) -> tuple:
+# Constants
+RESULTS_SUBDIR = "results"
+DEFAULT_TIMEOUT_SECONDS = 300
+R2_TIMEOUT_SCRIPT = "r2_timeout_check.sh"
+
+def configure_logging(output_dir: str) -> Tuple[logging.Logger, logging.Logger]:
     """
     Configure logging settings.
 
@@ -18,20 +24,24 @@ def configure_logging(output_dir: str) -> tuple:
         output_dir (str): Path to the output directory.
 
     Returns:
-        tuple: A tuple containing the extraction_logger and timing_logger objects.
+        Tuple[logging.Logger, logging.Logger]: A tuple containing the extraction_logger and timing_logger objects.
     """
-    extraction_log_file = os.path.join(output_dir, f'extraction.log')
+    extraction_log_file = os.path.join(output_dir, 'extraction.log')
     print(f"Logging to: {extraction_log_file}")
     extraction_logger = logging.getLogger('extraction_logger')
     extraction_logger.setLevel(logging.INFO)
+    # Clear existing handlers to avoid duplication
+    extraction_logger.handlers.clear()
     extraction_handler = logging.FileHandler(extraction_log_file)
     extraction_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     extraction_logger.addHandler(extraction_handler)
 
-    timing_log_file = os.path.join(output_dir, f'timing.log')
+    timing_log_file = os.path.join(output_dir, 'timing.log')
     print(f"Timing log file: {timing_log_file}")
     timing_logger = logging.getLogger('timing_logger')
     timing_logger.setLevel(logging.INFO)
+    # Clear existing handlers to avoid duplication
+    timing_logger.handlers.clear()
     timing_handler = logging.FileHandler(timing_log_file)
     timing_handler.setFormatter(logging.Formatter('%(asctime)s,%(message)s'))
     timing_logger.addHandler(timing_handler)
@@ -61,86 +71,58 @@ def check_timeout(input_file_path: str, timeout_seconds: int, bash_script_path: 
     except subprocess.CalledProcessError:
         return False
 
-def get_entry_point(file_path: str) -> int:
+@contextmanager
+def open_r2pipe(file_path: str):
     """
-    Get the entry point of an ELF file.
+    Context manager for r2pipe to ensure proper cleanup.
 
     Args:
-        file_path (str): Path to the ELF file.
+        file_path (str): Path to the file to analyze.
 
-    Returns:
-        int: Entry point address, or None if not found.
+    Yields:
+        r2pipe object
     """
+    r2 = None
     try:
-        with open(file_path, 'rb') as f:
-            elf = ELFFile(f)
-            return elf.header.e_entry
-    except Exception as e:
-        logging.error(f"Error getting entry point for {file_path}: {str(e)}")
-        return None
+        r2 = r2pipe.open(file_path, flags=['-2'])
+        yield r2
+    finally:
+        if r2:
+            r2.quit()
 
-def extract_features(input_file_path: str) -> list:
+def extract_features(input_file_path: str, extraction_logger: logging.Logger) -> List[Dict[str, Any]]:
     """
     Extract features from the input file.
 
     Args:
         input_file_path (str): Path to the input file.
+        extraction_logger (logging.Logger): Logger object for recording errors.
 
     Returns:
-        list: List of dictionaries containing extracted features.
+        List[Dict[str, Any]]: List of dictionaries containing extracted features.
     """
-    r2 = r2pipe.open(input_file_path, flags=['-2'])
-    r2.cmd("aaa")
-    
-    sections = r2.cmdj('iSj')
-    all_opcodes = []
+    with open_r2pipe(input_file_path) as r2:
+        r2.cmd("e asm.flags.middle=0")
+        sections = r2.cmdj('iSj')
 
-    if sections:
-        for section in sections:
-            if section['size'] > 0:
-                instructions = r2.cmdj(f"pDj {section['size']} @{section['vaddr']}")
-                if instructions:
-                    for instr in instructions:
-                        all_opcodes.append({
-                            'addr': instr['offset'],
-                            'opcode': instr['opcode'].split()[0] if 'opcode' in instr else '',
-                            'section_name': section['name']
-                        })
-    else:
-        elf_position = r2.cmdj("/j ELF")[0]['offset']
-        entry_point = get_entry_point(input_file_path)
-        if entry_point is None:
-            logging.error(f"Unable to retrieve entry point for {input_file_path}")
+        if not sections:
+            # No sections found - file may be packed, damaged, or incomplete
+            extraction_logger.error(f"No sections found in {input_file_path} - file may be packed, damaged, or incomplete")
             return []
-        r2.cmd(f"s {elf_position} - 1")
-        instructions = r2.cmdj("pdj $s")
-        invalid_count = 0
-        invalid_threshold = 500
-        if instructions:
-            for instr in instructions:
-                opcode = instr['opcode'].split()[0] if 'opcode' in instr else ''
-                if opcode == 'invalid':
-                    invalid_count += 1
-                else:
-                    invalid_count = 0
 
-                if invalid_count > invalid_threshold:
-                    all_opcodes = all_opcodes[:-invalid_count+1]
-                    break
-                
-                if entry_point and instr['offset'] < entry_point:
-                    section_name = '.compressed_data'
-                else:
-                    section_name = '.loader'
-                
-                all_opcodes.append({
-                    'addr': instr['offset'],
-                    'opcode': opcode,
-                    'section_name': section_name
-                })
+        # Use list comprehension for better performance
+        all_opcodes = [
+            {
+                'addr': instr['offset'],
+                'opcode': instr['opcode'].split()[0] if 'opcode' in instr else '',
+                'section_name': section['name']
+            }
+            for section in sections
+            if section['size'] > 0
+            for instr in (r2.cmdj(f"pDj {section['size']} @{section['vaddr']}") or [])
+        ]
 
-    r2.quit()
-    return all_opcodes
+        return all_opcodes
 
 def extraction(input_file_path: str, output_csv_path: str, file_name: str, extraction_logger: logging.Logger, timing_logger: logging.Logger, timeout_seconds: int, bash_script_path: str) -> float:
     """
@@ -156,7 +138,7 @@ def extraction(input_file_path: str, output_csv_path: str, file_name: str, extra
         bash_script_path (str): Path to the bash script for timeout check.
 
     Returns:
-        float: Execution time of the extraction process.
+        float: Execution time of the extraction process, or 0 if failed.
     """
     if os.path.exists(output_csv_path):
         extraction_logger.info(f"File already exists: {output_csv_path}")
@@ -169,29 +151,27 @@ def extraction(input_file_path: str, output_csv_path: str, file_name: str, extra
             extraction_logger.error(f"{file_name}: File analysis timed out after {timeout_seconds} seconds")
             return 0
 
-        all_opcodes = extract_features(input_file_path)
+        all_opcodes = extract_features(input_file_path, extraction_logger)
+
+        if not all_opcodes:
+            extraction_logger.error(f"{file_name}: No valid disassembly found")
+            return 0
 
         df = pd.DataFrame(all_opcodes)
-        if df.empty:
-            extraction_logger.info(f"{file_name}: No valid disassembly found")
-            raise ValueError(f"No valid disassembly found: {input_file_path}")
-
         df.to_csv(output_csv_path, index=False)
 
         execution_time = time.time() - start_time
-        timing_logger.info(f"{file_name},{execution_time:.2f} seconds")
+        timing_logger.info(f"{file_name},{execution_time:.2f}")
         return execution_time
 
     except FileNotFoundError:
-        extraction_logger.error(f"{file_name}: File not found")
-    except ValueError as ve:
-        extraction_logger.error(str(ve))
+        extraction_logger.error(f"{file_name}: File not found - {input_file_path}")
     except Exception as e:
-        extraction_logger.exception(f"An unexpected error occurred: {e}")
-    
+        extraction_logger.exception(f"{file_name}: Unexpected error - {e}")
+
     return 0
 
-def get_args(binary_path: str, output_path: str, extraction_logger: logging.Logger, timing_logger: logging.Logger, timeout_seconds: int, bash_script_path: str) -> list:
+def get_args(binary_path: str, output_path: str, extraction_logger: logging.Logger, timing_logger: logging.Logger, timeout_seconds: int, bash_script_path: str) -> List[Tuple]:
     """
     Generate a list of arguments for parallel processing.
 
@@ -204,7 +184,7 @@ def get_args(binary_path: str, output_path: str, extraction_logger: logging.Logg
         bash_script_path (str): Path to the bash script for timeout check.
 
     Returns:
-        list: A list of tuples containing the binary file path, output file path, file name, loggers, and timeout information.
+        List[Tuple]: A list of tuples containing the binary file path, output file path, file name, loggers, and timeout information.
     """
     args = []
     for root, _, files in os.walk(binary_path):
@@ -212,38 +192,44 @@ def get_args(binary_path: str, output_path: str, extraction_logger: logging.Logg
             if '.' not in file:
                 binary_file_path = os.path.join(root, file)
                 relative_path = os.path.relpath(root, binary_path)
-                output_dir_path = os.path.normpath(os.path.join(output_path, "results", relative_path))
+                output_dir_path = os.path.normpath(os.path.join(output_path, RESULTS_SUBDIR, relative_path))
                 os.makedirs(output_dir_path, exist_ok=True)
                 output_file_path = os.path.join(output_dir_path, f"{file}.csv")
                 args.append((binary_file_path, output_file_path, file, extraction_logger, timing_logger, timeout_seconds, bash_script_path))
     return args
 
-def parallel_process(args: list) -> None:
+def parallel_process(args: List[Tuple]) -> None:
     """
     Process the extraction tasks in parallel.
 
     Args:
-        args (list): A list of tuples containing the binary file path, output file path, file name, loggers, and timeout information.
+        args (List[Tuple]): A list of tuples containing the binary file path, output file path, file name, loggers, and timeout information.
     """
     with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
         futures = [executor.submit(extraction, *arg) for arg in args]
-        for _ in tqdm(as_completed(futures), total=len(futures), desc="Processing files", unit="file"):
-            pass
+        with tqdm(total=len(futures), desc="Processing files", unit="file") as pbar:
+            for _ in as_completed(futures):
+                pbar.update(1)
 
-def setup_output_directory(input_dir: str) -> str:
+def setup_output_directory(input_dir: str, custom_output_dir: str = None) -> str:
     """
     Set up the output directory for storing the extracted files.
 
     Args:
         input_dir (str): Path to the input directory.
+        custom_output_dir (str, optional): Custom output directory path. If None, uses default naming.
 
     Returns:
         str: Path to the output directory.
     """
-    output_dir = os.path.join(os.path.dirname(input_dir), f"{os.path.basename(input_dir)}_disassemble")
+    if custom_output_dir:
+        output_dir = custom_output_dir
+    else:
+        output_dir = os.path.join(os.path.dirname(input_dir), f"{os.path.basename(input_dir)}_disassemble")
+
     print(f"Output directory: {output_dir}")
     os.makedirs(output_dir, exist_ok=True)
-    results_dir = os.path.join(output_dir, "results")
+    results_dir = os.path.join(output_dir, RESULTS_SUBDIR)
     os.makedirs(results_dir, exist_ok=True)
     return output_dir
 
@@ -256,9 +242,12 @@ def parse_arguments() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description='Extract address and opcode information from binary files.')
     parser.add_argument('-d', '--directory', type=str, required=True, help='Path to the binary directory')
-    parser.add_argument('-t', '--timeout', type=int, default=300, help='Timeout duration in seconds')
+    parser.add_argument('-o', '--output', type=str, help='Path to the output directory (default: <input_dir>_disassemble)')
+    parser.add_argument('-t', '--timeout', type=int, default=DEFAULT_TIMEOUT_SECONDS, help=f'Timeout duration in seconds (default: {DEFAULT_TIMEOUT_SECONDS})')
     args = parser.parse_args()
     args.directory = os.path.normpath(os.path.expanduser(args.directory))
+    if args.output:
+        args.output = os.path.normpath(os.path.expanduser(args.output))
     return args
 
 def main() -> None:
@@ -268,22 +257,24 @@ def main() -> None:
     args = parse_arguments()
 
     input_dir = args.directory
-    output_dir = setup_output_directory(input_dir)
+    output_dir = setup_output_directory(input_dir, args.output)
     extraction_logger, timing_logger = configure_logging(output_dir)
 
     # Get the path of the current script
-    current_script_path = os.path.abspath(__file__)
-    script_directory = os.path.dirname(current_script_path)
-    bash_script_path = os.path.join(script_directory, "r2_timeout_check.sh")
+    script_directory = os.path.dirname(os.path.abspath(__file__))
+    bash_script_path = os.path.join(script_directory, R2_TIMEOUT_SCRIPT)
 
     # Check if r2_timeout_check.sh exists and is executable
     if not os.path.exists(bash_script_path):
-        extraction_logger.error(f"r2_timeout_check.sh not found in the same directory as get_opcode.py")
-        print(f"Error: r2_timeout_check.sh not found in {script_directory}")
+        error_msg = f"{R2_TIMEOUT_SCRIPT} not found in {script_directory}"
+        extraction_logger.error(error_msg)
+        print(f"Error: {error_msg}")
         return
-    elif not os.access(bash_script_path, os.X_OK):
-        extraction_logger.error(f"r2_timeout_check.sh is not executable")
-        print(f"Error: r2_timeout_check.sh in {script_directory} is not executable")
+
+    if not os.access(bash_script_path, os.X_OK):
+        error_msg = f"{R2_TIMEOUT_SCRIPT} in {script_directory} is not executable"
+        extraction_logger.error(error_msg)
+        print(f"Error: {error_msg}")
         return
 
     parallel_process(get_args(input_dir, output_dir, extraction_logger, timing_logger, args.timeout, bash_script_path))

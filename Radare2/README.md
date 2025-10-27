@@ -1,5 +1,7 @@
 # Opcode Extraction Tool
 
+[English](README.md) | [繁體中文](README.zh-TW.md)
+
 This Python tool is designed to extract address and opcode information from binary files and save the results as CSV files. Here's a detailed explanation of each part of the tool:
 
 ## Installation Requirements
@@ -30,18 +32,50 @@ To use this tool, follow these steps:
 
 3. Run the following command to use the tool:
 
-   ```
+   ```bash
    python get_opcode.py -d /path/to/binary/directory
    ```
 
    Replace `/path/to/binary/directory` with the path to the directory containing the binary files you want to process.
 
+### Command-Line Arguments
+
+- `-d, --directory` (required): Path to the binary directory containing the files to process.
+- `-o, --output` (optional): Path to the output directory. If not specified, defaults to `<binary_directory>_disassemble`.
+- `-t, --timeout` (optional): Timeout duration in seconds for each file analysis (default: 300 seconds).
+
+### Usage Examples
+
+```bash
+# Basic usage with default settings
+python get_opcode.py -d /path/to/binary/directory
+
+# Specify custom output directory
+python get_opcode.py -d /path/to/binary/directory -o /path/to/output
+
+# Set custom timeout (600 seconds)
+python get_opcode.py -d /path/to/binary/directory -t 600
+
+# Combine all options
+python get_opcode.py -d /path/to/binary/directory -o /path/to/output -t 600
+```
+
 4. The tool will start processing the binary files and save the extracted address and opcode information as CSV files. The progress will be displayed in the terminal.
 
-5. Once the processing is complete, the extracted CSV files will be saved in a directory named `<binary_directory>_disassemble` located at the same level as the input directory, where `<binary_directory>` is the name of the input directory. The `<binary_directory>_disassemble` directory will contain the following:
+5. Once the processing is complete, the extracted CSV files will be saved in the output directory. The output directory will contain the following:
    - `results` subdirectory: Contains the extracted CSV files for each binary file, maintaining the same relative path structure as the input directory.
    - `extraction.log`: Log file recording the extraction process and any errors or warnings.
    - `timing.log`: Log file recording the execution time for each file processing.
+
+## Features
+
+- **Parallel Processing**: Utilizes multi-core CPUs to process multiple binary files simultaneously for faster extraction.
+- **Resource Management**: Implements context managers to ensure proper cleanup of radare2 instances, preventing resource leaks.
+- **Timeout Protection**: Built-in timeout mechanism to prevent hanging on problematic binaries.
+- **Comprehensive Logging**: Separate logs for extraction process and timing information for analysis and debugging.
+- **Error Handling**: Robust error handling for various edge cases including packed, damaged, or incomplete binaries.
+- **Progress Tracking**: Real-time progress bar to monitor the extraction process.
+- **Flexible Output**: Customizable output directory location.
 
 ## Code Explanation
 
@@ -54,7 +88,22 @@ This function is used to configure the logging settings. It takes the output dir
 - `extraction_logger` is used to log errors during the extraction process.
 - `timing_logger` is used to log the execution time for each file processing.
 
-The log files will be saved in the `<binary_directory>_disassemble` directory.
+The log files will be saved in the output directory. The function also clears existing handlers to prevent duplicate logging entries.
+
+### `open_r2pipe` Function
+
+This is a context manager that ensures proper resource management for radare2 instances. It automatically opens and closes r2pipe connections, guaranteeing cleanup even if exceptions occur during processing. This prevents resource leaks and ensures system stability during large batch processing.
+
+### `extract_features` Function
+
+This function extracts opcode information from binary files using radare2. It:
+- Opens the binary file using the `open_r2pipe` context manager for safe resource handling
+- Retrieves all sections from the binary
+- For each section with non-zero size, disassembles instructions using the `pDj` command
+- Extracts the address, opcode, and section name for each instruction
+- Returns a list of dictionaries containing the extracted information
+
+If no sections are found (indicating a potentially packed, damaged, or incomplete binary), an error is logged and an empty list is returned.
 
 ### `extraction` Function
 
@@ -65,10 +114,18 @@ This function is responsible for extracting address and opcode information from 
 - `file_name`: The name of the target file.
 - `extraction_logger`: The logger object for recording the extraction process.
 - `timing_logger`: The logger object for recording the execution time.
+- `timeout_seconds`: Maximum time allowed for file analysis.
+- `bash_script_path`: Path to the timeout check script.
 
-The function uses Radare2 to perform disassembly and extracts the address and opcode information from the disassembly results. The extracted data is then saved as a CSV file.
+The function performs the following steps:
+1. Checks if the output file already exists (skips if it does)
+2. Performs a timeout check to avoid hanging on problematic binaries
+3. Calls `extract_features` to extract opcodes using radare2
+4. Validates that opcodes were successfully extracted
+5. Saves the results to a CSV file using pandas
+6. Logs the execution time
 
-If any errors occur during the extraction process, such as file not found or invalid disassembly results, the error information will be logged using the `extraction_logger`.
+If any errors occur during the extraction process, such as file not found or no valid disassembly results, the error information will be logged using the `extraction_logger`.
 
 ### `get_args` Function
 
@@ -89,15 +146,18 @@ The function uses `ProcessPoolExecutor` to create a process pool and submits the
 
 ### `setup_output_directory` Function
 
-This function is used to set up the output directory for storing the extracted files. It takes the input directory path as a parameter and returns the path to the output directory.
+This function is used to set up the output directory for storing the extracted files. It takes the input directory path and an optional custom output directory path as parameters and returns the path to the output directory.
 
-The output directory will be named `<binary_directory>_disassemble` and located at the same level as the input directory, where `<binary_directory>` is the name of the input directory. The function creates the `<binary_directory>_disassemble` directory if it doesn't exist and also creates a `results` subdirectory within it.
+If a custom output directory is specified, it will be used. Otherwise, the output directory will be named `<binary_directory>_disassemble` and located at the same level as the input directory, where `<binary_directory>` is the name of the input directory. The function creates the output directory if it doesn't exist and also creates a `results` subdirectory within it.
 
 ### `parse_arguments` Function
 
 This function is used to parse the command-line arguments. It uses the `argparse` module to define and parse the arguments.
 
-The tool accepts one required argument, `-d` or `--directory`, which specifies the path to the directory containing the binary files.
+The tool accepts the following arguments:
+- `-d` or `--directory` (required): Specifies the path to the directory containing the binary files.
+- `-o` or `--output` (optional): Specifies the custom output directory path.
+- `-t` or `--timeout` (optional): Specifies the timeout duration in seconds for file analysis (default: 300).
 
 ### `main` Function
 
