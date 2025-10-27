@@ -151,7 +151,11 @@ def extraction(input_file_path: str, output_csv_path: str, file_name: str, extra
             return 0
 
         start_time = time.process_time()
+        
         all_opcodes = extract_features(input_file_path, extraction_logger)
+
+        execution_time = time.process_time() - start_time
+        timing_logger.info(f"{file_name},{execution_time:.2f}")
 
         if not all_opcodes:
             extraction_logger.error(f"{file_name}: No valid disassembly found")
@@ -164,8 +168,6 @@ def extraction(input_file_path: str, output_csv_path: str, file_name: str, extra
         df = pd.DataFrame(all_opcodes)
         df.to_csv(output_csv_path, index=False)
 
-        execution_time = time.process_time() - start_time
-        timing_logger.info(f"{file_name},{execution_time:.2f}")
         return execution_time
 
     except FileNotFoundError:
