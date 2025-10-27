@@ -144,7 +144,7 @@ def extraction(input_file_path: str, output_csv_path: str, file_name: str, extra
         extraction_logger.info(f"File already exists: {output_csv_path}")
         return 0
 
-    start_time = time.time()
+    start_time = time.process_time()
 
     try:
         if not check_timeout(input_file_path, timeout_seconds, bash_script_path):
@@ -157,10 +157,14 @@ def extraction(input_file_path: str, output_csv_path: str, file_name: str, extra
             extraction_logger.error(f"{file_name}: No valid disassembly found")
             return 0
 
+        # Create output directory only when needed
+        output_dir = os.path.dirname(output_csv_path)
+        os.makedirs(output_dir, exist_ok=True)
+
         df = pd.DataFrame(all_opcodes)
         df.to_csv(output_csv_path, index=False)
 
-        execution_time = time.time() - start_time
+        execution_time = time.process_time() - start_time
         timing_logger.info(f"{file_name},{execution_time:.2f}")
         return execution_time
 
@@ -193,7 +197,7 @@ def get_args(binary_path: str, output_path: str, extraction_logger: logging.Logg
                 binary_file_path = os.path.join(root, file)
                 relative_path = os.path.relpath(root, binary_path)
                 output_dir_path = os.path.normpath(os.path.join(output_path, RESULTS_SUBDIR, relative_path))
-                os.makedirs(output_dir_path, exist_ok=True)
+                # Don't create directory here - will be created when needed
                 output_file_path = os.path.join(output_dir_path, f"{file}.csv")
                 args.append((binary_file_path, output_file_path, file, extraction_logger, timing_logger, timeout_seconds, bash_script_path))
     return args
