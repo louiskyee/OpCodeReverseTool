@@ -40,21 +40,21 @@ except Exception as e:
     print("ERROR: " + error_message)
     raise
 
-program_name = currentProgram.getName()
+file_name = currentProgram.getName()
 
 # Use first two characters as subdirectory (aligned with Radare2 structure)
-subdir = program_name[:2]
-program_folder = os.path.join(results_folder, subdir)
+subdir = file_name[:2]
+output_dir_path = os.path.join(results_folder, subdir)
 
 # Create the subdirectory
-if not os.path.exists(program_folder):
-    os.makedirs(program_folder)
+if not os.path.exists(output_dir_path):
+    os.makedirs(output_dir_path)
 
 # Set up logging with dedicated logger
 extraction_logger = configure_extraction_logger(output_folder)
 
 # Determine file path for CSV file
-csv_file_path = os.path.join(program_folder, program_name + '.csv')
+csv_file_path = os.path.join(output_dir_path, file_name + '.csv')
 
 try:
     # Record start time (CPU time)
@@ -64,13 +64,13 @@ try:
 
     if not memory_blocks:
         # No memory blocks found - file may be packed, damaged, or incomplete
-        extraction_logger.error("{}: No memory blocks found - file may be packed, damaged, or incomplete".format(program_name))
+        extraction_logger.error("{}: No memory blocks found - file may be packed, damaged, or incomplete".format(file_name))
         raise Exception("No memory blocks found")
 
     # Collect all opcodes first
     all_opcodes = []
     for block in memory_blocks:
-        block_name = block.getName()
+        section_name = block.getName()
         address_set = AddressSet(block.getStart(), block.getEnd())
 
         # Manually disassemble the block since we use -noanalysis
@@ -81,14 +81,14 @@ try:
         for instr in instructions:
             addr = int(instr.getAddress().getOffset())
             opcode = str(instr).split(' ')[0]
-            all_opcodes.append([addr, opcode, block_name])
+            all_opcodes.append([addr, opcode, section_name])
 
     # Calculate execution time
     execution_time = time.process_time() - start_time
 
     # Only create CSV file if we have extracted opcodes
     if not all_opcodes:
-        extraction_logger.error("{}: No instructions found in any memory block".format(program_name))
+        extraction_logger.error("{}: No instructions found in any memory block".format(file_name))
         raise Exception("No instructions found")
 
     # Write all collected opcodes to CSV
@@ -98,13 +98,13 @@ try:
         csvwriter.writerows(all_opcodes)
 
     # Log success with timing information
-    extraction_logger.info("{}: Successfully extracted opcode information".format(program_name))
+    extraction_logger.info("{}: Successfully extracted opcode information".format(file_name))
 
     # Write timing information to timing.log
     timing_log_path = os.path.join(output_folder, 'timing.log')
     with open(timing_log_path, 'a') as timing_file:
-        timing_file.write("{},{:.2f}\n".format(program_name, execution_time))
+        timing_file.write("{},{:.2f}\n".format(file_name, execution_time))
 
 except Exception as e:
-    error_message = "{}: An error occurred while extracting opcodes - {}".format(program_name, str(e))
+    error_message = "{}: An error occurred while extracting opcodes - {}".format(file_name, str(e))
     extraction_logger.error(error_message, exc_info=True)
