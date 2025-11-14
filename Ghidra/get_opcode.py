@@ -73,7 +73,7 @@ def extract_features(input_file_path: str, output_dir: str, ghidra_headless_path
             '-import', input_file_path,
             '-noanalysis',
             '-scriptPath', script_directory,
-            '-postScript', PYTHON_SCRIPT_NAME,
+            '-postScript', python_script_path,
             output_dir, results_folder
         ], capture_output=True, text=True)
 
