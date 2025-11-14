@@ -40,7 +40,7 @@ except Exception as e:
     print("ERROR: " + error_message)
     raise
 
-file_name = currentProgram.getName()
+file_name = currentProgram().getName()
 
 # Use first two characters as subdirectory (aligned with Radare2 structure)
 subdir = file_name[:2]
@@ -60,7 +60,7 @@ try:
     # Record start time (CPU time)
     start_time = time.process_time()
     
-    memory_blocks = currentProgram.getMemory().getBlocks()
+    memory_blocks = currentProgram().getMemory().getBlocks()
 
     if not memory_blocks:
         # No memory blocks found - file may be packed, damaged, or incomplete
@@ -75,9 +75,9 @@ try:
 
         # Manually disassemble the block since we use -noanalysis
         disassembleCommand = DisassembleCommand(address_set, address_set, True)
-        disassembleCommand.applyTo(currentProgram)
+        disassembleCommand.applyTo(currentProgram())
 
-        instructions = currentProgram.getListing().getInstructions(address_set, True)
+        instructions = currentProgram().getListing().getInstructions(address_set, True)
         for instr in instructions:
             addr = int(instr.getAddress().getOffset())
             opcode = str(instr).split(' ')[0]
